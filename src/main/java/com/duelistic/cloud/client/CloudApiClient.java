@@ -10,6 +10,7 @@ import java.time.Duration;
 import java.util.List;
 import java.util.Optional;
 import java.net.URLEncoder;
+import java.util.UUID;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
@@ -102,6 +103,112 @@ public class CloudApiClient {
         return true;
     }
 
+    /**
+     * Creates a party for the given leader.
+     */
+    public Party createParty(UUID leaderId) throws IOException, InterruptedException {
+        if (leaderId == null) {
+            throw new IllegalArgumentException("leader id is required");
+        }
+        String path = "/api/parties?leader=" + encodeQuery(leaderId.toString());
+        HttpResponse<String> response = sendRequest(path, "POST");
+        if (response.statusCode() != 200) {
+            throw new IOException("HTTP " + response.statusCode() + " for " + path + ": " + response.body());
+        }
+        return mapper.readValue(response.body(), Party.class);
+    }
+
+    /**
+     * Returns the party for a user if present.
+     */
+    public Optional<Party> getParty(UUID userId) throws IOException, InterruptedException {
+        if (userId == null) {
+            throw new IllegalArgumentException("user id is required");
+        }
+        String path = "/api/parties?user=" + encodeQuery(userId.toString());
+        HttpResponse<String> response = sendRequest(path);
+        if (response.statusCode() == 404) {
+            return Optional.empty();
+        }
+        if (response.statusCode() != 200) {
+            throw new IOException("HTTP " + response.statusCode() + " for " + path + ": " + response.body());
+        }
+        return Optional.of(mapper.readValue(response.body(), Party.class));
+    }
+
+    /**
+     * Removes a user from their current party.
+     */
+    public boolean leaveParty(UUID userId) throws IOException, InterruptedException {
+        if (userId == null) {
+            throw new IllegalArgumentException("user id is required");
+        }
+        String path = "/api/parties?user=" + encodeQuery(userId.toString());
+        HttpResponse<String> response = sendRequest(path, "DELETE");
+        if (response.statusCode() == 404) {
+            return false;
+        }
+        if (response.statusCode() != 200) {
+            throw new IOException("HTTP " + response.statusCode() + " for " + path + ": " + response.body());
+        }
+        return true;
+    }
+
+    /**
+     * Sends a party invite from a leader to another player.
+     */
+    public boolean inviteToParty(UUID inviterId, UUID invitedId) throws IOException, InterruptedException {
+        if (inviterId == null || invitedId == null) {
+            throw new IllegalArgumentException("inviter and invited ids are required");
+        }
+        String path = "/api/parties/invites?inviter=" + encodeQuery(inviterId.toString())
+            + "&invited=" + encodeQuery(invitedId.toString());
+        HttpResponse<String> response = sendRequest(path, "POST");
+        if (response.statusCode() == 404) {
+            return false;
+        }
+        if (response.statusCode() != 200) {
+            throw new IOException("HTTP " + response.statusCode() + " for " + path + ": " + response.body());
+        }
+        return true;
+    }
+
+    /**
+     * Accepts or declines a party invite.
+     */
+    public boolean handlePartyInvite(UUID inviterId, UUID invitedId, boolean accept) throws IOException, InterruptedException {
+        if (inviterId == null || invitedId == null) {
+            throw new IllegalArgumentException("inviter and invited ids are required");
+        }
+        String path = "/api/parties/invites/handle?inviter=" + encodeQuery(inviterId.toString())
+            + "&invited=" + encodeQuery(invitedId.toString())
+            + "&accept=" + accept;
+        HttpResponse<String> response = sendRequest(path, "POST");
+        if (response.statusCode() == 404) {
+            return false;
+        }
+        if (response.statusCode() != 200) {
+            throw new IOException("HTTP " + response.statusCode() + " for " + path + ": " + response.body());
+        }
+        return true;
+    }
+
+    /**
+     * Returns all invites for the given player.
+     */
+    public List<PartyInvite> getPartyInvites(UUID invitedId) throws IOException, InterruptedException {
+        if (invitedId == null) {
+            throw new IllegalArgumentException("invited id is required");
+        }
+        String path = "/api/parties/invites?invited=" + encodeQuery(invitedId.toString());
+        HttpResponse<String> response = sendRequest(path);
+        if (response.statusCode() != 200) {
+            throw new IOException("HTTP " + response.statusCode() + " for " + path + ": " + response.body());
+        }
+        PartyInvitesResponse payload = mapper.readValue(response.body(), PartyInvitesResponse.class);
+        return payload.getInvites();
+    }
+
     private HttpResponse<String> sendRequest(String path) throws IOException, InterruptedException {
         return sendRequest(path, "GET");
     }
@@ -113,6 +220,8 @@ public class CloudApiClient {
             .timeout(Duration.ofSeconds(5));
         if ("POST".equalsIgnoreCase(method)) {
             builder.POST(HttpRequest.BodyPublishers.noBody());
+        } else if ("DELETE".equalsIgnoreCase(method)) {
+            builder.DELETE();
         } else {
             builder.GET();
         }
@@ -120,6 +229,10 @@ public class CloudApiClient {
     }
 
     private static String encodePath(String value) {
+        return URLEncoder.encode(value, StandardCharsets.UTF_8);
+    }
+
+    private static String encodeQuery(String value) {
         return URLEncoder.encode(value, StandardCharsets.UTF_8);
     }
 }
